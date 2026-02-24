@@ -1,0 +1,141 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+from sklearn.metrics import confusion_matrix
+import numpy as np
+
+
+# -----------------------------
+# Config
+# -----------------------------
+BATCH_SIZE = 64
+EPOCHS = 5
+LR = 1e-3
+SEED = 42
+
+
+# -----------------------------
+# Reproducibility
+# -----------------------------
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
+
+# -----------------------------
+# Device
+# -----------------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+
+# -----------------------------
+# Data
+# -----------------------------
+transform = transforms.ToTensor()
+
+train_dataset = datasets.FashionMNIST(
+    root="data",
+    train=True,
+    download=False,
+    transform=transform
+)
+test_dataset = datasets.FashionMNIST(
+    root="data",
+    train=False,
+    download=False,
+    transform=transform
+)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+
+# -----------------------------
+# Model: Simple CNN
+# -----------------------------
+class CNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)   # 28 -> 26
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)  # after pool: 13 -> 11
+        self.pool = nn.MaxPool2d(kernel_size=2)
+        self.relu = nn.ReLU()
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(64 * 5 * 5, 128)
+        self.fc2 = nn.Linear(128, 10)
+
+    def forward(self, x):
+        x = self.relu(self.conv1(x))  # (N, 32, 26, 26)
+        x = self.pool(x)              # (N, 32, 13, 13)
+        x = self.relu(self.conv2(x))  # (N, 64, 11, 11)
+        x = self.pool(x)              # (N, 64, 5, 5)
+        x = self.flatten(x)           # (N, 64*5*5)
+        x = self.relu(self.fc1(x))    # (N, 128)
+        x = self.fc2(x)               # (N, 10)
+        return x
+
+
+def train_one_epoch(model, loader, optimizer, criterion):
+    model.train()
+    total_loss = 0.0
+
+    for images, labels in loader:
+        images, labels = images.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        logits = model(images)
+        loss = criterion(logits, labels)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+
+@torch.no_grad()
+def evaluate(model, loader):
+    model.eval()
+    correct = 0
+    total = 0
+
+    all_preds = []
+    all_labels = []
+
+    for images, labels in loader:
+        images, labels = images.to(device), labels.to(device)
+        logits = model(images)
+        preds = logits.argmax(dim=1)
+
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+    acc = correct / total if total else 0.0
+    return acc, np.array(all_preds), np.array(all_labels)
+
+
+def main():
+    model = CNN().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+    criterion = nn.CrossEntropyLoss()
+
+    for epoch in range(EPOCHS):
+        loss = train_one_epoch(model, train_loader, optimizer, criterion)
+        print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {loss:.4f}")
+
+    acc, preds, labels = evaluate(model, test_loader)
+    print(f"\nTest Accuracy: {acc:.4f}")
+
+    cm = confusion_matrix(labels, preds)
+    print("\nConfusion Matrix (rows=true, cols=pred):")
+    print(cm)
+
+
+if __name__ == "__main__":
+    main()
