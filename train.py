@@ -5,6 +5,8 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix
 import numpy as np
+import os
+import matplotlib.pyplot as plt
 
 
 # -----------------------------
@@ -77,6 +79,25 @@ class CNN(nn.Module):
         x = self.fc2(x)               # (N, 10)
         return x
 
+# -----------------------------
+# Model: Simple MLP
+# -----------------------------
+class MLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.net = nn.Sequential(
+            nn.Linear(28 * 28, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 10),
+        )
+
+    def forward(self, x):
+        x = self.flatten(x)
+        return self.net(x)
+
 
 def train_one_epoch(model, loader, optimizer, criterion):
     model.train()
@@ -120,21 +141,50 @@ def evaluate(model, loader):
     return acc, np.array(all_preds), np.array(all_labels)
 
 
-def main():
-    model = CNN().to(device)
+def save_confusion_matrix_png(cm: np.ndarray, out_path: str, title: str) -> None:
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(cm)
+    plt.title(title)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.colorbar()
+
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, str(cm[i, j]), ha="center", va="center", fontsize=7)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+
+
+def run_experiment(model: nn.Module, name: str):
+    model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
     criterion = nn.CrossEntropyLoss()
 
     for epoch in range(EPOCHS):
         loss = train_one_epoch(model, train_loader, optimizer, criterion)
-        print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {loss:.4f}")
+        print(f"[{name}] Epoch {epoch+1}/{EPOCHS} | Loss: {loss:.4f}")
 
     acc, preds, labels = evaluate(model, test_loader)
-    print(f"\nTest Accuracy: {acc:.4f}")
-
     cm = confusion_matrix(labels, preds)
-    print("\nConfusion Matrix (rows=true, cols=pred):")
-    print(cm)
+
+    print(f"\n[{name}] Test Accuracy: {acc:.4f}\n")
+    save_confusion_matrix_png(cm, f"results/{name}_confusion_matrix.png", f"{name} Confusion Matrix")
+
+    return acc
+
+
+def main():
+    mlp_acc = run_experiment(MLP(), "MLP")
+    cnn_acc = run_experiment(CNN(), "CNN")
+
+    print("=== Summary ===")
+    print(f"MLP Accuracy: {mlp_acc:.4f}")
+    print(f"CNN Accuracy: {cnn_acc:.4f}")
 
 
 if __name__ == "__main__":
