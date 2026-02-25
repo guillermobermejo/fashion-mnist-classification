@@ -17,6 +17,11 @@ EPOCHS = 5
 LR = 1e-3
 SEED = 42
 
+CLASS_NAMES = [
+    "T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
+    "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"
+]
+
 
 # -----------------------------
 # Reproducibility
@@ -160,6 +165,25 @@ def save_confusion_matrix_png(cm: np.ndarray, out_path: str, title: str) -> None
     plt.close()
 
 
+def print_per_class_accuracy(cm: np.ndarray) -> None:
+    print("Per-class accuracy:")
+
+    per_class = []
+    for i in range(cm.shape[0]):
+        total = int(cm[i].sum())
+        correct = int(cm[i, i])
+        acc = correct / total if total > 0 else 0.0
+        per_class.append(acc)
+
+        print(f"- {CLASS_NAMES[i]:12s}: {acc:.4f} ({correct}/{total})")
+
+    worst_i = int(np.argmin(per_class))
+    best_i = int(np.argmax(per_class))
+
+    print(f"\nLowest class accuracy: {CLASS_NAMES[worst_i]} ({per_class[worst_i]:.4f})")
+    print(f"Highest class accuracy: {CLASS_NAMES[best_i]} ({per_class[best_i]:.4f})")
+
+
 def run_experiment(model: nn.Module, name: str):
     model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
@@ -171,6 +195,8 @@ def run_experiment(model: nn.Module, name: str):
 
     acc, preds, labels = evaluate(model, test_loader)
     cm = confusion_matrix(labels, preds)
+
+    print_per_class_accuracy(cm)
 
     print(f"\n[{name}] Test Accuracy: {acc:.4f}\n")
     save_confusion_matrix_png(cm, f"results/{name}_confusion_matrix.png", f"{name} Confusion Matrix")
